@@ -1,0 +1,3 @@
+[submodule "Deploy/erp-software"]
+    path = Deploy/erp-software
+    url = https://github.com/YourUsername/erp-software.git
