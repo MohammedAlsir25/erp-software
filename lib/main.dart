@@ -270,6 +270,7 @@ class _MainLayoutState extends State<MainLayout>
     'Inventory',
     'Accounting',
     'HR',
+    'Wave Features', // Added Wave Features title
   ];
 
   final List<Widget> _moduleWidgets = [
@@ -279,6 +280,7 @@ class _MainLayoutState extends State<MainLayout>
     const InventoryModule(),
     const AccountingModule(),
     const HRModule(),
+    const WaveFeaturesModule(), // Added Wave Features module
   ];
 
   @override
@@ -333,6 +335,8 @@ class _MainLayoutState extends State<MainLayout>
         NavigationRailDestination(
             icon: Icon(Icons.account_balance), label: Text('Accounting')),
         NavigationRailDestination(icon: Icon(Icons.group), label: Text('HR')),
+        NavigationRailDestination(
+            icon: Icon(Icons.waves), label: Text('Wave Features')),
       ],
     );
   }

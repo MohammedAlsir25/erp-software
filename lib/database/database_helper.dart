@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import 'package:mongo_dart/mongo_dart.dart';
+import 'package:flutter/foundation.dart';
 import '../models/user.dart';
 
 class DatabaseHelper {
@@ -19,7 +20,7 @@ class DatabaseHelper {
     if (_mongoDb == null) {
       // Replace <db_password> with your actual password
       _mongoDb = Db(
-          'mongodb+srv://dbUser:Moh@mmed_10@cluster0.9hv9acb.mongodb.net/erp_database?retryWrites=true&w=majority');
+          'mongodb+srv://dbUser:Moh%40mmed_10@cluster0.9hv9acb.mongodb.net/erp_database?retryWrites=true&w=majority');
       await _mongoDb!.open();
     }
   }
