@@ -15,15 +15,11 @@ dependencies:
   provider: ^6.0.5
   intl: ^0.18.1
   shared_preferences: ^2.2.0
-  sqflite: ^2.3.0
-  path_provider: ^2.1.1
   email_validator: ^2.1.17
-  sqflite_common_ffi: ^2.3.0
-  sqflite_common_ffi_web: ^0.4.3+1
   mongo_dart: ^0.10.0
   firebase_core: ^2.15.1
-  cloud_firestore: ^4.9.1
   firebase_auth: ^4.7.3
+  firebase_database: ^10.5.7
 
 dev_dependencies:
   flutter_test:

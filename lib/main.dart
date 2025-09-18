@@ -1,3 +1,5 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'models/customer.dart';
@@ -5,177 +7,125 @@ import 'models/product.dart';
 import 'models/sale.dart';
 import 'models/employee.dart';
 import 'models/transaction.dart';
-import 'database/database_helper.dart';
+import 'database/firebase_database_helper.dart';
 import 'models/user.dart';
 import 'package:email_validator/email_validator.dart';
 import 'dart:math';
 
 class ERPState extends ChangeNotifier {
-  List<Customer> customers = [
-    Customer(
-        id: '1',
-        name: 'Ahmed Hassan',
-        email: 'ahmed@example.com',
-        phone: '+971 50 123 4567'),
-    Customer(
-        id: '2',
-        name: 'Fatima Ali',
-        email: 'fatima@example.com',
-        phone: '+971 50 234 5678'),
-    Customer(
-        id: '3',
-        name: 'Imran Khan',
-        email: 'imran@example.com',
-        phone: '+971 50 345 6789'),
-  ];
+  final FirebaseDatabaseHelper _dbHelper = FirebaseDatabaseHelper();
 
-  List<Product> products = [
-    Product(
-        id: 'prod1',
-        name: 'Laptop',
-        description: 'High-performance laptop',
-        price: 1200.0,
-        stockQuantity: 50,
-        category: 'Electronics'),
-    Product(
-        id: 'prod2',
-        name: 'Mouse',
-        description: 'Wireless mouse',
-        price: 25.0,
-        stockQuantity: 200,
-        category: 'Accessories'),
-    Product(
-        id: 'prod3',
-        name: 'Keyboard',
-        description: 'Mechanical keyboard',
-        price: 80.0,
-        stockQuantity: 100,
-        category: 'Accessories'),
-  ];
+  List<Customer> customers = [];
+  List<Product> products = [];
   List<Sale> sales = [];
   List<Employee> employees = [];
-  List<Transaction> transactions = [
-    Transaction(
-      id: 'trans1',
-      type: 'income',
-      amount: 5000.0,
-      date: DateTime.now().subtract(const Duration(days: 1)),
-      description: 'Sale of products',
-      category: 'Sales',
-    ),
-    Transaction(
-      id: 'trans2',
-      type: 'expense',
-      amount: 2000.0,
-      date: DateTime.now().subtract(const Duration(days: 2)),
-      description: 'Office supplies',
-      category: 'Operations',
-    ),
-  ];
+  List<Transaction> transactions = [];
 
-  void addCustomer(String id, String name, String email, String phone) {
-    customers.add(Customer(id: id, name: name, email: email, phone: phone));
+  ERPState() {
+    fetchData();
+  }
+
+  Future<void> fetchData() async {
+    customers = await _dbHelper.getAllCustomers();
+    products = await _dbHelper.getAllProducts();
+    sales = await _dbHelper.getAllSales();
+    employees = await _dbHelper.getAllEmployees();
+    transactions = await _dbHelper.getAllTransactions();
     notifyListeners();
   }
 
-  void removeCustomer(int index) {
-    customers.removeAt(index);
-    notifyListeners();
+  Future<void> addCustomer(String id, String name, String email, String phone) async {
+    Customer customer = Customer(id: id, name: name, email: email, phone: phone);
+    await _dbHelper.addCustomer(customer);
+    await fetchData();
   }
 
-  void updateCustomer(int index, String name, String email, String phone) {
-    customers[index] = Customer(
-        id: customers[index].id, name: name, email: email, phone: phone);
-    notifyListeners();
+  Future<void> removeCustomer(String id) async {
+    await _dbHelper.deleteCustomer(id);
+    await fetchData();
   }
 
-  void addSale(String customerId, List<String> productIds, double totalAmount,
-      String status) {
+  Future<void> updateCustomer(Customer customer) async {
+    await _dbHelper.updateCustomer(customer);
+    await fetchData();
+  }
+
+  Future<void> addSale(String customerId, List<String> productIds, double totalAmount,
+      String status) async {
     String id = 'sale_${DateTime.now().millisecondsSinceEpoch}';
-    sales.add(Sale(
+    Sale sale = Sale(
       id: id,
       customerId: customerId,
       productIds: productIds,
       totalAmount: totalAmount,
       date: DateTime.now(),
       status: status,
-    ));
-    notifyListeners();
+    );
+    await _dbHelper.addSale(sale);
+    await fetchData();
   }
 
-  void removeSale(int index) {
-    sales.removeAt(index);
-    notifyListeners();
+  Future<void> removeSale(String id) async {
+    await _dbHelper.deleteSale(id);
+    await fetchData();
   }
 
-  void addProduct(String id, String name, String description, double price,
-      int stockQuantity, String category) {
-    products.add(Product(
+  Future<void> addProduct(String id, String name, String description, double price,
+      int stockQuantity, String category) async {
+    Product product = Product(
       id: id,
-      name: name,
-      description: description,
-      price: price,
-      stockQuantity: stockQuantity,
-      category: category,
-    ));
-    notifyListeners();
-  }
-
-  void removeProduct(int index) {
-    products.removeAt(index);
-    notifyListeners();
-  }
-
-  void updateProduct(int index, String name, String description, double price,
-      int stockQuantity, String category) {
-    products[index] = Product(
-      id: products[index].id,
       name: name,
       description: description,
       price: price,
       stockQuantity: stockQuantity,
       category: category,
     );
-    notifyListeners();
+    await _dbHelper.addProduct(product);
+    await fetchData();
   }
 
-  void updateStock(String productId, int newStock) {
-    final productIndex = products.indexWhere((p) => p.id == productId);
-    if (productIndex != -1) {
-      products[productIndex] = Product(
-        id: products[productIndex].id,
-        name: products[productIndex].name,
-        description: products[productIndex].description,
-        price: products[productIndex].price,
-        stockQuantity: newStock,
-        category: products[productIndex].category,
-      );
-      notifyListeners();
+  Future<void> removeProduct(String id) async {
+    await _dbHelper.deleteProduct(id);
+    await fetchData();
+  }
+
+  Future<void> updateProduct(Product product) async {
+    await _dbHelper.updateProduct(product);
+    await fetchData();
+  }
+
+  Future<void> updateStock(String productId, int newStock) async {
+    Product? product = await _dbHelper.getProduct(productId);
+    if (product != null) {
+      product.stockQuantity = newStock;
+      await _dbHelper.updateProduct(product);
+      await fetchData();
     }
   }
 
-  void addTransaction(
-      String type, double amount, String description, String category) {
+  Future<void> addTransaction(
+      String type, double amount, String description, String category) async {
     String id = 'trans_${DateTime.now().millisecondsSinceEpoch}';
-    transactions.add(Transaction(
+    Transaction transaction = Transaction(
       id: id,
       type: type,
       amount: amount,
       date: DateTime.now(),
       description: description,
       category: category,
-    ));
-    notifyListeners();
+    );
+    await _dbHelper.addTransaction(transaction);
+    await fetchData();
   }
 
-  void removeTransaction(int index) {
-    transactions.removeAt(index);
-    notifyListeners();
+  Future<void> removeTransaction(String id) async {
+    await _dbHelper.deleteTransaction(id);
+    await fetchData();
   }
 
-  void addEmployee(String id, String name, String position, String department,
-      double salary) {
-    employees.add(Employee(
+  Future<void> addEmployee(String id, String name, String position, String department,
+      double salary) async {
+    Employee employee = Employee(
       id: id,
       name: name,
       email: '',
@@ -184,32 +134,25 @@ class ERPState extends ChangeNotifier {
       department: department,
       salary: salary,
       hireDate: DateTime.now(),
-    ));
-    notifyListeners();
-  }
-
-  void removeEmployee(int index) {
-    employees.removeAt(index);
-    notifyListeners();
-  }
-
-  void updateEmployee(int index, String name, String position,
-      String department, double salary) {
-    employees[index] = Employee(
-      id: employees[index].id,
-      name: name,
-      email: employees[index].email,
-      phone: employees[index].phone,
-      position: position,
-      department: department,
-      salary: salary,
-      hireDate: employees[index].hireDate,
     );
-    notifyListeners();
+    await _dbHelper.addEmployee(employee);
+    await fetchData();
+  }
+
+  Future<void> removeEmployee(String id) async {
+    await _dbHelper.deleteEmployee(id);
+    await fetchData();
+  }
+
+  Future<void> updateEmployee(Employee employee) async {
+    await _dbHelper.updateEmployee(employee);
+    await fetchData();
   }
 }
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(
     MultiProvider(
       providers: [
@@ -1005,11 +948,11 @@ class _CRMModuleState extends State<CRMModule> {
                       IconButton(
                         icon: const Icon(Icons.edit),
                         onPressed: () =>
-                            _editCustomer(context, index, customer),
+                            _editCustomer(context, customer), 
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete),
-                        onPressed: () => _confirmDeleteCustomer(context, index),
+                        onPressed: () => _confirmDeleteCustomer(context, customer.id), 
                       ),
                     ],
                   ),
@@ -1093,7 +1036,7 @@ class _CRMModuleState extends State<CRMModule> {
     );
   }
 
-  void _editCustomer(BuildContext context, int index, Customer customer) {
+  void _editCustomer(BuildContext context, Customer customer) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1133,7 +1076,7 @@ class _CRMModuleState extends State<CRMModule> {
               onPressed: () {
                 if (name.isNotEmpty && email.isNotEmpty && phone.isNotEmpty) {
                   Provider.of<ERPState>(context, listen: false)
-                      .updateCustomer(index, name, email, phone);
+                      .updateCustomer(Customer(id: customer.id, name: name, email: email, phone: phone));
                   Navigator.of(context).pop();
                 }
               },
@@ -1145,7 +1088,7 @@ class _CRMModuleState extends State<CRMModule> {
     );
   }
 
-  void _confirmDeleteCustomer(BuildContext context, int index) {
+  void _confirmDeleteCustomer(BuildContext context, String id) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1160,7 +1103,7 @@ class _CRMModuleState extends State<CRMModule> {
             TextButton(
               onPressed: () {
                 Provider.of<ERPState>(context, listen: false)
-                    .removeCustomer(index);
+                    .removeCustomer(id);
                 Navigator.of(context).pop();
               },
               child: const Text('Delete'),
@@ -1215,14 +1158,14 @@ class _SalesModuleState extends State<SalesModule> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Customer: ${customer.name}'),
-                      Text('Total: \$${sale.totalAmount.toStringAsFixed(2)}'),
+                      Text('Total: \${sale.totalAmount.toStringAsFixed(2)}'),
                       Text('Date: ${sale.date.toString().split(' ')[0]}'),
                       Text('Status: ${sale.status}'),
                     ],
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete),
-                    onPressed: () => _confirmDeleteSale(context, index),
+                    onPressed: () => _confirmDeleteSale(context, sale.id),
                   ),
                 ),
               );
@@ -1278,7 +1221,7 @@ class _SalesModuleState extends State<SalesModule> {
                           children: state.products.map((product) {
                             return CheckboxListTile(
                               title:
-                                  Text('${product.name} - \$${product.price}'),
+                                  Text('${product.name} - \${product.price}'),
                               value: selectedProductIds.contains(product.id),
                               onChanged: (bool? value) {
                                 setState(() {
@@ -1297,7 +1240,7 @@ class _SalesModuleState extends State<SalesModule> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    Text('Total: \$${totalAmount.toStringAsFixed(2)}'),
+                    Text('Total: \${totalAmount.toStringAsFixed(2)}'),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
                       value: status,
@@ -1344,7 +1287,7 @@ class _SalesModuleState extends State<SalesModule> {
     );
   }
 
-  void _confirmDeleteSale(BuildContext context, int index) {
+  void _confirmDeleteSale(BuildContext context, String id) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1358,7 +1301,7 @@ class _SalesModuleState extends State<SalesModule> {
             ),
             TextButton(
               onPressed: () {
-                Provider.of<ERPState>(context, listen: false).removeSale(index);
+                Provider.of<ERPState>(context, listen: false).removeSale(id);
                 Navigator.of(context).pop();
               },
               child: const Text('Delete'),
@@ -1407,7 +1350,7 @@ class _InventoryModuleState extends State<InventoryModule> {
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Price: \$${product.price.toStringAsFixed(2)}'),
+                      Text('Price: \${product.price.toStringAsFixed(2)}'),
                       Text('Stock: ${product.stockQuantity}'),
                       Text('Category: ${product.category}'),
                     ],
@@ -1417,11 +1360,11 @@ class _InventoryModuleState extends State<InventoryModule> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit),
-                        onPressed: () => _editProduct(context, index, product),
+                        onPressed: () => _editProduct(context, product.id), 
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete),
-                        onPressed: () => _confirmDeleteProduct(context, index),
+                        onPressed: () => _confirmDeleteProduct(context, product.id),
                       ),
                     ],
                   ),
@@ -1525,7 +1468,7 @@ class _InventoryModuleState extends State<InventoryModule> {
     );
   }
 
-  void _editProduct(BuildContext context, int index, Product product) {
+  void _editProduct(BuildContext context, Product product) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1583,7 +1526,7 @@ class _InventoryModuleState extends State<InventoryModule> {
                     stock >= 0 &&
                     category.isNotEmpty) {
                   Provider.of<ERPState>(context, listen: false).updateProduct(
-                      index, name, description, price, stock, category);
+                      Product(id: product.id, name: name, description: description, price: price, stockQuantity: stock, category: category));
                   Navigator.of(context).pop();
                 }
               },
@@ -1595,7 +1538,7 @@ class _InventoryModuleState extends State<InventoryModule> {
     );
   }
 
-  void _confirmDeleteProduct(BuildContext context, int index) {
+  void _confirmDeleteProduct(BuildContext context, String id) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1610,7 +1553,7 @@ class _InventoryModuleState extends State<InventoryModule> {
             TextButton(
               onPressed: () {
                 Provider.of<ERPState>(context, listen: false)
-                    .removeProduct(index);
+                    .removeProduct(id);
                 Navigator.of(context).pop();
               },
               child: const Text('Delete'),
