@@ -6,11 +6,12 @@ import 'models/customer.dart';
 import 'models/product.dart';
 import 'models/sale.dart';
 import 'models/employee.dart';
-import 'models/transaction.dart';
+import 'models/transaction.dart' as app_transaction;
 import 'database/firebase_database_helper.dart';
 import 'models/user.dart';
 import 'package:email_validator/email_validator.dart';
 import 'dart:math';
+import 'wave_features_module.dart';
 
 class ERPState extends ChangeNotifier {
   final FirebaseDatabaseHelper _dbHelper = FirebaseDatabaseHelper();
@@ -19,23 +20,30 @@ class ERPState extends ChangeNotifier {
   List<Product> products = [];
   List<Sale> sales = [];
   List<Employee> employees = [];
-  List<Transaction> transactions = [];
+  List<app_transaction.Transaction> transactions = [];
 
   ERPState() {
     fetchData();
   }
 
   Future<void> fetchData() async {
-    customers = await _dbHelper.getAllCustomers();
-    products = await _dbHelper.getAllProducts();
-    sales = await _dbHelper.getAllSales();
-    employees = await _dbHelper.getAllEmployees();
-    transactions = await _dbHelper.getAllTransactions();
-    notifyListeners();
+    try {
+      customers = await _dbHelper.getAllCustomers();
+      products = await _dbHelper.getAllProducts();
+      sales = await _dbHelper.getAllSales();
+      employees = await _dbHelper.getAllEmployees();
+      transactions = await _dbHelper.getAllTransactions();
+      notifyListeners();
+    } catch (e) {
+      print('Error fetching data: $e');
+      // Keep existing data if fetch fails
+    }
   }
 
-  Future<void> addCustomer(String id, String name, String email, String phone) async {
-    Customer customer = Customer(id: id, name: name, email: email, phone: phone);
+  Future<void> addCustomer(
+      String id, String name, String email, String phone) async {
+    Customer customer =
+        Customer(id: id, name: name, email: email, phone: phone);
     await _dbHelper.addCustomer(customer);
     await fetchData();
   }
@@ -50,8 +58,8 @@ class ERPState extends ChangeNotifier {
     await fetchData();
   }
 
-  Future<void> addSale(String customerId, List<String> productIds, double totalAmount,
-      String status) async {
+  Future<void> addSale(String customerId, List<String> productIds,
+      double totalAmount, String status) async {
     String id = 'sale_${DateTime.now().millisecondsSinceEpoch}';
     Sale sale = Sale(
       id: id,
@@ -70,8 +78,8 @@ class ERPState extends ChangeNotifier {
     await fetchData();
   }
 
-  Future<void> addProduct(String id, String name, String description, double price,
-      int stockQuantity, String category) async {
+  Future<void> addProduct(String id, String name, String description,
+      double price, int stockQuantity, String category) async {
     Product product = Product(
       id: id,
       name: name,
@@ -90,8 +98,12 @@ class ERPState extends ChangeNotifier {
   }
 
   Future<void> updateProduct(Product product) async {
-    await _dbHelper.updateProduct(product);
-    await fetchData();
+    try {
+      await _dbHelper.updateProduct(product);
+      await fetchData();
+    } catch (e) {
+      print('Error updating product: $e');
+    }
   }
 
   Future<void> updateStock(String productId, int newStock) async {
@@ -105,26 +117,34 @@ class ERPState extends ChangeNotifier {
 
   Future<void> addTransaction(
       String type, double amount, String description, String category) async {
-    String id = 'trans_${DateTime.now().millisecondsSinceEpoch}';
-    Transaction transaction = Transaction(
-      id: id,
-      type: type,
-      amount: amount,
-      date: DateTime.now(),
-      description: description,
-      category: category,
-    );
-    await _dbHelper.addTransaction(transaction);
-    await fetchData();
+    try {
+      String id = 'trans_${DateTime.now().millisecondsSinceEpoch}';
+      app_transaction.Transaction transaction = app_transaction.Transaction(
+        id: id,
+        type: type,
+        amount: amount,
+        date: DateTime.now(),
+        description: description,
+        category: category,
+      );
+      await _dbHelper.addTransaction(transaction);
+      await fetchData();
+    } catch (e) {
+      print('Error adding transaction: $e');
+    }
   }
 
   Future<void> removeTransaction(String id) async {
-    await _dbHelper.deleteTransaction(id);
-    await fetchData();
+    try {
+      await _dbHelper.deleteTransaction(id);
+      await fetchData();
+    } catch (e) {
+      print('Error removing transaction: $e');
+    }
   }
 
-  Future<void> addEmployee(String id, String name, String position, String department,
-      double salary) async {
+  Future<void> addEmployee(String id, String name, String position,
+      String department, double salary) async {
     Employee employee = Employee(
       id: id,
       name: name,
@@ -189,6 +209,11 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: const LoginScreen(),
+      routes: {
+        '/login': (context) => const LoginScreen(),
+        '/signup': (context) => const SignUpScreen(),
+        '/main': (context) => const MainLayout(),
+      },
     );
   }
 }
@@ -333,7 +358,7 @@ class _SignUpScreenState extends State<SignUpScreen>
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
       TextEditingController();
-  final DatabaseHelper _dbHelper = DatabaseHelper();
+  final FirebaseDatabaseHelper _dbHelper = FirebaseDatabaseHelper();
   String? _verificationCode;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -594,7 +619,7 @@ class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final DatabaseHelper _dbHelper = DatabaseHelper();
+  final FirebaseDatabaseHelper _dbHelper = FirebaseDatabaseHelper();
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
@@ -776,7 +801,7 @@ class _LoginScreenState extends State<LoginScreen>
 class EmailVerificationScreen extends StatefulWidget {
   final String email;
   final String verificationCode;
-  final DatabaseHelper dbHelper;
+  final FirebaseDatabaseHelper dbHelper;
 
   const EmailVerificationScreen({
     super.key,
@@ -947,12 +972,12 @@ class _CRMModuleState extends State<CRMModule> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit),
-                        onPressed: () =>
-                            _editCustomer(context, customer), 
+                        onPressed: () => _editCustomer(context, customer),
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete),
-                        onPressed: () => _confirmDeleteCustomer(context, customer.id), 
+                        onPressed: () =>
+                            _confirmDeleteCustomer(context, customer.id),
                       ),
                     ],
                   ),
@@ -1075,8 +1100,12 @@ class _CRMModuleState extends State<CRMModule> {
             TextButton(
               onPressed: () {
                 if (name.isNotEmpty && email.isNotEmpty && phone.isNotEmpty) {
-                  Provider.of<ERPState>(context, listen: false)
-                      .updateCustomer(Customer(id: customer.id, name: name, email: email, phone: phone));
+                  Provider.of<ERPState>(context, listen: false).updateCustomer(
+                      Customer(
+                          id: customer.id,
+                          name: name,
+                          email: email,
+                          phone: phone));
                   Navigator.of(context).pop();
                 }
               },
@@ -1360,11 +1389,12 @@ class _InventoryModuleState extends State<InventoryModule> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit),
-                        onPressed: () => _editProduct(context, product.id), 
+                        onPressed: () => _editProduct(context, product.id),
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete),
-                        onPressed: () => _confirmDeleteProduct(context, product.id),
+                        onPressed: () =>
+                            _confirmDeleteProduct(context, product.id),
                       ),
                     ],
                   ),
@@ -1526,7 +1556,13 @@ class _InventoryModuleState extends State<InventoryModule> {
                     stock >= 0 &&
                     category.isNotEmpty) {
                   Provider.of<ERPState>(context, listen: false).updateProduct(
-                      Product(id: product.id, name: name, description: description, price: price, stockQuantity: stock, category: category));
+                      Product(
+                          id: product.id,
+                          name: name,
+                          description: description,
+                          price: price,
+                          stockQuantity: stock,
+                          category: category));
                   Navigator.of(context).pop();
                 }
               },
@@ -1552,8 +1588,7 @@ class _InventoryModuleState extends State<InventoryModule> {
             ),
             TextButton(
               onPressed: () {
-                Provider.of<ERPState>(context, listen: false)
-                    .removeProduct(id);
+                Provider.of<ERPState>(context, listen: false).removeProduct(id);
                 Navigator.of(context).pop();
               },
               child: const Text('Delete'),

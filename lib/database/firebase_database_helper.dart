@@ -4,7 +4,7 @@ import '../models/customer.dart';
 import '../models/product.dart';
 import '../models/sale.dart';
 import '../models/employee.dart';
-import '../models/transaction.dart';
+import '../models/transaction.dart' as app_transaction;
 
 class FirebaseDatabaseHelper {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
@@ -30,6 +30,24 @@ class FirebaseDatabaseHelper {
     await _dbRef.child('users').child(id).remove();
   }
 
+  Future<User?> getUserByEmail(String email) async {
+    DataSnapshot snapshot = await _dbRef.child('users').get();
+    if (snapshot.exists) {
+      final users = snapshot.value as Map;
+      for (var userData in users.values) {
+        final user = User.fromJson(Map<String, dynamic>.from(userData as Map));
+        if (user.email == email) {
+          return user;
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> insertUser(User user) async {
+    await addUser(user);
+  }
+
   // Customer
   Future<void> addCustomer(Customer customer) async {
     await _dbRef.child('customers').child(customer.id).set(customer.toJson());
@@ -38,7 +56,8 @@ class FirebaseDatabaseHelper {
   Future<Customer?> getCustomer(String id) async {
     DataSnapshot snapshot = await _dbRef.child('customers').child(id).get();
     if (snapshot.exists) {
-      return Customer.fromJson(Map<String, dynamic>.from(snapshot.value as Map));
+      return Customer.fromJson(
+          Map<String, dynamic>.from(snapshot.value as Map));
     }
     return null;
   }
@@ -46,13 +65,19 @@ class FirebaseDatabaseHelper {
   Future<List<Customer>> getAllCustomers() async {
     DataSnapshot snapshot = await _dbRef.child('customers').get();
     if (snapshot.exists) {
-      return (snapshot.value as Map).values.map((e) => Customer.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      return (snapshot.value as Map)
+          .values
+          .map((e) => Customer.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
     }
     return [];
   }
 
   Future<void> updateCustomer(Customer customer) async {
-    await _dbRef.child('customers').child(customer.id).update(customer.toJson());
+    await _dbRef
+        .child('customers')
+        .child(customer.id)
+        .update(customer.toJson());
   }
 
   Future<void> deleteCustomer(String id) async {
@@ -75,7 +100,10 @@ class FirebaseDatabaseHelper {
   Future<List<Product>> getAllProducts() async {
     DataSnapshot snapshot = await _dbRef.child('products').get();
     if (snapshot.exists) {
-      return (snapshot.value as Map).values.map((e) => Product.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      return (snapshot.value as Map)
+          .values
+          .map((e) => Product.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
     }
     return [];
   }
@@ -104,7 +132,10 @@ class FirebaseDatabaseHelper {
   Future<List<Sale>> getAllSales() async {
     DataSnapshot snapshot = await _dbRef.child('sales').get();
     if (snapshot.exists) {
-      return (snapshot.value as Map).values.map((e) => Sale.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      return (snapshot.value as Map)
+          .values
+          .map((e) => Sale.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
     }
     return [];
   }
@@ -125,7 +156,8 @@ class FirebaseDatabaseHelper {
   Future<Employee?> getEmployee(String id) async {
     DataSnapshot snapshot = await _dbRef.child('employees').child(id).get();
     if (snapshot.exists) {
-      return Employee.fromJson(Map<String, dynamic>.from(snapshot.value as Map));
+      return Employee.fromJson(
+          Map<String, dynamic>.from(snapshot.value as Map));
     }
     return null;
   }
@@ -133,13 +165,19 @@ class FirebaseDatabaseHelper {
   Future<List<Employee>> getAllEmployees() async {
     DataSnapshot snapshot = await _dbRef.child('employees').get();
     if (snapshot.exists) {
-      return (snapshot.value as Map).values.map((e) => Employee.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      return (snapshot.value as Map)
+          .values
+          .map((e) => Employee.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
     }
     return [];
   }
 
   Future<void> updateEmployee(Employee employee) async {
-    await _dbRef.child('employees').child(employee.id).update(employee.toJson());
+    await _dbRef
+        .child('employees')
+        .child(employee.id)
+        .update(employee.toJson());
   }
 
   Future<void> deleteEmployee(String id) async {
@@ -147,28 +185,40 @@ class FirebaseDatabaseHelper {
   }
 
   // Transaction
-  Future<void> addTransaction(Transaction transaction) async {
-    await _dbRef.child('transactions').child(transaction.id).set(transaction.toJson());
+  Future<void> addTransaction(app_transaction.Transaction transaction) async {
+    await _dbRef
+        .child('transactions')
+        .child(transaction.id)
+        .set(transaction.toJson());
   }
 
-  Future<Transaction?> getTransaction(String id) async {
+  Future<app_transaction.Transaction?> getTransaction(String id) async {
     DataSnapshot snapshot = await _dbRef.child('transactions').child(id).get();
     if (snapshot.exists) {
-      return Transaction.fromJson(Map<String, dynamic>.from(snapshot.value as Map));
+      return app_transaction.Transaction.fromJson(
+          Map<String, dynamic>.from(snapshot.value as Map));
     }
     return null;
   }
 
-  Future<List<Transaction>> getAllTransactions() async {
+  Future<List<app_transaction.Transaction>> getAllTransactions() async {
     DataSnapshot snapshot = await _dbRef.child('transactions').get();
     if (snapshot.exists) {
-      return (snapshot.value as Map).values.map((e) => Transaction.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      return (snapshot.value as Map)
+          .values
+          .map((e) => app_transaction.Transaction.fromJson(
+              Map<String, dynamic>.from(e as Map)))
+          .toList();
     }
     return [];
   }
 
-  Future<void> updateTransaction(Transaction transaction) async {
-    await _dbRef.child('transactions').child(transaction.id).update(transaction.toJson());
+  Future<void> updateTransaction(
+      app_transaction.Transaction transaction) async {
+    await _dbRef
+        .child('transactions')
+        .child(transaction.id)
+        .update(transaction.toJson());
   }
 
   Future<void> deleteTransaction(String id) async {

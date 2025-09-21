@@ -20,6 +20,8 @@ dependencies:
   firebase_core: ^2.15.1
   firebase_auth: ^4.7.3
   firebase_database: ^10.5.7
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0
 
 dev_dependencies:
   flutter_test:
