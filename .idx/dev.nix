@@ -1,7 +1,9 @@
 {pkgs}: {
   channel = "stable-24.05";
   packages = [
-    pkgs.jdk17
+    pkgs.flutter,
+    pkgs.flutter319,
+    pkgs.jdk17,
     pkgs.unzip
   ];
   idx.extensions = [
@@ -11,29 +13,11 @@
     previews = {
       web = {
         command = [
-          "flutter"
-          "run"
-          "--machine"
-          "-d"
-          "web-server"
-          "--web-hostname"
-          "0.0.0.0"
-          "--web-port"
-          "$PORT"
+          "flutter",
+          "run",
+          "-d",
+          "windows"
         ];
-        manager = "flutter";
-      };
-      android = {
-        command = [
-          "flutter"
-          "run"
-          "--machine"
-          "-d"
-          "android"
-          "-d"
-          "localhost:5555"
-        ];
-        manager = "flutter";
       };
     };
   };
