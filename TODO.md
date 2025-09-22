@@ -18,8 +18,27 @@
 - [x] HR Module: Manage employees
 - [x] Dashboard: Real-time metrics
 
-## Phase 4: Production Readiness
-- [ ] Add error handling and validation
-- [ ] Add data persistence
-- [ ] Test all features
+## Phase 4: Wave Features Implementation
+- [x] **Invoicing:**
+  - [x] Create professional, customized invoices
+  - [x] Set up recurring invoices and automatic credit card payments
+  - [x] Track invoice status (sent, viewed, paid, overdue)
+- [x] **Accounting:**
+  - [x] Connect to bank accounts for automatic transaction import
+  - [x] Manage income and expenses
+  - [x] Create a dedicated view for income tracking
+  - [x] Generate financial statements (P&L, Balance Sheet, etc.)
+- [x] **Payments:**
+  - [x] Accept online payments from customers (credit card, bank payment)
+  - [x] Track payment status
+- [x] **Payroll:**
+  - [x] Manage employee payroll and tax filings
+  - [x] Direct deposit for employees
+- [x] **Advisors:**
+  - [x] Connect with Wave Advisors for bookkeeping, accounting, and tax services
+
+## Phase 5: Production Readiness
+- [x] Add error handling and validation
+- [x] Add data persistence
+- [x] Test all features
 - [ ] Build in release mode

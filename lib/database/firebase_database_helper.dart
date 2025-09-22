@@ -5,6 +5,8 @@ import '../models/product.dart';
 import '../models/sale.dart';
 import '../models/employee.dart';
 import '../models/transaction.dart' as app_transaction;
+import '../models/invoice.dart';
+import '../models/recurring_invoice.dart';
 
 class FirebaseDatabaseHelper {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
@@ -223,5 +225,57 @@ class FirebaseDatabaseHelper {
 
   Future<void> deleteTransaction(String id) async {
     await _dbRef.child('transactions').child(id).remove();
+  }
+
+  // Invoice
+  Future<void> addInvoice(Invoice invoice) async {
+    await _dbRef.child('invoices').child(invoice.id).set(invoice.toJson());
+  }
+
+  Future<Invoice?> getInvoice(String id) async {
+    DataSnapshot snapshot = await _dbRef.child('invoices').child(id).get();
+    if (snapshot.exists) {
+      return Invoice.fromJson(Map<String, dynamic>.from(snapshot.value as Map));
+    }
+    return null;
+  }
+
+  Future<List<Invoice>> getAllInvoices() async {
+    DataSnapshot snapshot = await _dbRef.child('invoices').get();
+    if (snapshot.exists) {
+      return (snapshot.value as Map)
+          .values
+          .map((e) => Invoice.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    return [];
+  }
+
+  Future<void> updateInvoice(Invoice invoice) async {
+    await _dbRef.child('invoices').child(invoice.id).update(invoice.toJson());
+  }
+
+  Future<void> deleteInvoice(String id) async {
+    await _dbRef.child('invoices').child(id).remove();
+  }
+
+  // Recurring Invoice
+  Future<void> addRecurringInvoice(RecurringInvoice rInvoice) async {
+    await _dbRef.child('recurring_invoices').child(rInvoice.id).set(rInvoice.toJson());
+  }
+
+  Future<List<RecurringInvoice>> getAllRecurringInvoices() async {
+    DataSnapshot snapshot = await _dbRef.child('recurring_invoices').get();
+    if (snapshot.exists) {
+      return (snapshot.value as Map)
+          .values
+          .map((e) => RecurringInvoice.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    return [];
+  }
+
+  Future<void> deleteRecurringInvoice(String id) async {
+    await _dbRef.child('recurring_invoices').child(id).remove();
   }
 }

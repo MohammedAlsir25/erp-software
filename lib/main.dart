@@ -1,17 +1,23 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:email_validator/email_validator.dart';
+
 import 'models/customer.dart';
 import 'models/product.dart';
 import 'models/sale.dart';
 import 'models/employee.dart';
 import 'models/transaction.dart' as app_transaction;
-import 'database/firebase_database_helper.dart';
+import 'models/invoice.dart';
+import 'models/recurring_invoice.dart';
 import 'models/user.dart';
-import 'package:email_validator/email_validator.dart';
-import 'dart:math';
-import 'wave_features_module.dart';
+
+import 'database/firebase_database_helper.dart';
+
+import 'invoicing_module.dart';
+import 'accounting_module.dart';
 
 class ERPState extends ChangeNotifier {
   final FirebaseDatabaseHelper _dbHelper = FirebaseDatabaseHelper();
@@ -21,9 +27,12 @@ class ERPState extends ChangeNotifier {
   List<Sale> sales = [];
   List<Employee> employees = [];
   List<app_transaction.Transaction> transactions = [];
+  List<Invoice> invoices = [];
+  List<RecurringInvoice> recurringInvoices = [];
 
   ERPState() {
     fetchData();
+    _checkRecurringInvoices();
   }
 
   Future<void> fetchData() async {
@@ -33,23 +42,97 @@ class ERPState extends ChangeNotifier {
       sales = await _dbHelper.getAllSales();
       employees = await _dbHelper.getAllEmployees();
       transactions = await _dbHelper.getAllTransactions();
+      invoices = await _dbHelper.getAllInvoices();
+      recurringInvoices = await _dbHelper.getAllRecurringInvoices();
       notifyListeners();
     } catch (e) {
       print('Error fetching data: $e');
-      // Keep existing data if fetch fails
     }
   }
 
-  Future<void> addCustomer(
-      String id, String name, String email, String phone) async {
-    Customer customer =
-        Customer(id: id, name: name, email: email, phone: phone);
-    await _dbHelper.addCustomer(customer);
+  void _checkRecurringInvoices() {
+    Timer.periodic(const Duration(days: 1), (timer) {
+      final now = DateTime.now();
+      for (final rInvoice in recurringInvoices) {
+        final lastCreated = invoices
+            .where((i) => i.customerName == rInvoice.customerName && i.isRecurring)
+            .map((i) => i.date)
+            .fold<DateTime?>(null, (prev, current) => (prev == null || current.isAfter(prev)) ? current : prev);
+
+        bool shouldCreate = false;
+        if (lastCreated == null) {
+          shouldCreate = true;
+        } else {
+          switch (rInvoice.frequency) {
+            case 'Daily':
+              if (now.difference(lastCreated).inDays >= 1) shouldCreate = true;
+              break;
+            case 'Weekly':
+              if (now.difference(lastCreated).inDays >= 7) shouldCreate = true;
+              break;
+            case 'Monthly':
+              if (now.month != lastCreated.month || now.year != lastCreated.year) {
+                shouldCreate = true;
+              }
+              break;
+            case 'Yearly':
+              if (now.year != lastCreated.year) shouldCreate = true;
+              break;
+          }
+        }
+
+        if (shouldCreate) {
+          addInvoice(rInvoice.customerName, rInvoice.details, rInvoice.amount, isRecurring: true);
+        }
+      }
+    });
+  }
+
+  // Invoice Methods
+  Future<void> addInvoice(String customerName, String details, double amount, {bool isRecurring = false}) async {
+    final newInvoice = Invoice(
+      id: 'inv_${DateTime.now().millisecondsSinceEpoch}',
+      customerName: customerName,
+      details: details,
+      amount: amount,
+      date: DateTime.now(),
+      isRecurring: isRecurring,
+    );
+    await _dbHelper.addInvoice(newInvoice);
     await fetchData();
   }
 
-  Future<void> removeCustomer(String id) async {
-    await _dbHelper.deleteCustomer(id);
+  Future<void> removeInvoice(String id) async {
+    await _dbHelper.deleteInvoice(id);
+    await fetchData();
+  }
+
+  Future<void> addRecurringInvoice(String customerName, String details, double amount, String frequency) async {
+    final newRInvoice = RecurringInvoice(
+      id: 'rinv_${DateTime.now().millisecondsSinceEpoch}',
+      customerName: customerName,
+      details: details,
+      amount: amount,
+      frequency: frequency,
+      startDate: DateTime.now(),
+    );
+    await _dbHelper.addRecurringInvoice(newRInvoice);
+    await fetchData();
+  }
+
+  Future<void> removeRecurringInvoice(String id) async {
+    await _dbHelper.deleteRecurringInvoice(id);
+    await fetchData();
+  }
+
+  // Customer Methods
+  Future<void> addCustomer(String name, String email, String phone) async {
+    final newCustomer = Customer(
+        id: 'cust_${DateTime.now().millisecondsSinceEpoch}',
+        name: name,
+        email: email,
+        phone: phone);
+    await _dbHelper.addCustomer(newCustomer);
     await fetchData();
   }
 
@@ -58,37 +141,26 @@ class ERPState extends ChangeNotifier {
     await fetchData();
   }
 
-  Future<void> addSale(String customerId, List<String> productIds,
-      double totalAmount, String status) async {
-    String id = 'sale_${DateTime.now().millisecondsSinceEpoch}';
-    Sale sale = Sale(
-      id: id,
-      customerId: customerId,
-      productIds: productIds,
-      totalAmount: totalAmount,
-      date: DateTime.now(),
-      status: status,
-    );
-    await _dbHelper.addSale(sale);
+  Future<void> removeCustomer(String id) async {
+    await _dbHelper.deleteCustomer(id);
     await fetchData();
   }
 
-  Future<void> removeSale(String id) async {
-    await _dbHelper.deleteSale(id);
+  // Product Methods
+  Future<void> addProduct(String name, String description, double price, int stockQuantity, String category) async {
+    final newProduct = Product(
+        id: 'prod_${DateTime.now().millisecondsSinceEpoch}',
+        name: name,
+        description: description,
+        price: price,
+        stockQuantity: stockQuantity,
+        category: category);
+    await _dbHelper.addProduct(newProduct);
     await fetchData();
   }
 
-  Future<void> addProduct(String id, String name, String description,
-      double price, int stockQuantity, String category) async {
-    Product product = Product(
-      id: id,
-      name: name,
-      description: description,
-      price: price,
-      stockQuantity: stockQuantity,
-      category: category,
-    );
-    await _dbHelper.addProduct(product);
+  Future<void> updateProduct(Product product) async {
+    await _dbHelper.updateProduct(product);
     await fetchData();
   }
 
@@ -97,65 +169,42 @@ class ERPState extends ChangeNotifier {
     await fetchData();
   }
 
-  Future<void> updateProduct(Product product) async {
-    try {
-      await _dbHelper.updateProduct(product);
-      await fetchData();
-    } catch (e) {
-      print('Error updating product: $e');
-    }
-  }
-
-  Future<void> updateStock(String productId, int newStock) async {
-    Product? product = await _dbHelper.getProduct(productId);
-    if (product != null) {
-      product.stockQuantity = newStock;
-      await _dbHelper.updateProduct(product);
-      await fetchData();
-    }
-  }
-
-  Future<void> addTransaction(
-      String type, double amount, String description, String category) async {
-    try {
-      String id = 'trans_${DateTime.now().millisecondsSinceEpoch}';
-      app_transaction.Transaction transaction = app_transaction.Transaction(
-        id: id,
-        type: type,
-        amount: amount,
+  // Sale Methods
+  Future<void> addSale(String customerId, List<Product> products, String status) async {
+    final totalAmount = products.fold(0.0, (sum, item) => sum + item.price);
+    final newSale = Sale(
+        id: 'sale_${DateTime.now().millisecondsSinceEpoch}',
+        customerId: customerId,
+        productIds: products.map((p) => p.id).toList(),
+        totalAmount: totalAmount,
         date: DateTime.now(),
-        description: description,
-        category: category,
-      );
-      await _dbHelper.addTransaction(transaction);
-      await fetchData();
-    } catch (e) {
-      print('Error adding transaction: $e');
-    }
+        status: status);
+    await _dbHelper.addSale(newSale);
+    await fetchData();
   }
 
-  Future<void> removeTransaction(String id) async {
-    try {
-      await _dbHelper.deleteTransaction(id);
-      await fetchData();
-    } catch (e) {
-      print('Error removing transaction: $e');
-    }
+  Future<void> removeSale(String id) async {
+    await _dbHelper.deleteSale(id);
+    await fetchData();
   }
 
-  Future<void> addEmployee(String id, String name, String position,
-      String department, double salary) async {
-    Employee employee = Employee(
-      id: id,
-      name: name,
-      email: '',
-      phone: '',
-      position: position,
-      department: department,
-      salary: salary,
-      hireDate: DateTime.now(),
-    );
-    await _dbHelper.addEmployee(employee);
+  // Employee Methods
+  Future<void> addEmployee(String name, String position, String department, double salary, String email, String phone) async {
+    final newEmployee = Employee(
+        id: 'emp_${DateTime.now().millisecondsSinceEpoch}',
+        name: name,
+        position: position,
+        department: department,
+        salary: salary,
+        email: email,
+        phone: phone,
+        hireDate: DateTime.now());
+    await _dbHelper.addEmployee(newEmployee);
+    await fetchData();
+  }
+
+  Future<void> updateEmployee(Employee employee) async {
+    await _dbHelper.updateEmployee(employee);
     await fetchData();
   }
 
@@ -164,8 +213,22 @@ class ERPState extends ChangeNotifier {
     await fetchData();
   }
 
-  Future<void> updateEmployee(Employee employee) async {
-    await _dbHelper.updateEmployee(employee);
+  // Transaction Methods
+  Future<void> addTransaction(String type, double amount, String description, String category) async {
+    final newTransaction = app_transaction.Transaction(
+      id: 'trans_${DateTime.now().millisecondsSinceEpoch}',
+      type: type,
+      amount: amount,
+      date: DateTime.now(),
+      description: description,
+      category: category,
+    );
+    await _dbHelper.addTransaction(newTransaction);
+    await fetchData();
+  }
+
+  Future<void> removeTransaction(String id) async {
+    await _dbHelper.deleteTransaction(id);
     await fetchData();
   }
 }
@@ -174,10 +237,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ERPState()),
-      ],
+    ChangeNotifierProvider(
+      create: (_) => ERPState(),
       child: const MyApp(),
     ),
   );
@@ -194,18 +255,18 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: const ColorScheme(
           brightness: Brightness.dark,
-          primary: Colors.white, // Changed from green to white
-          onPrimary: Colors.black, // Changed to black for visibility on white
-          secondary: Colors.white, // Changed from green to white
-          onSecondary: Colors.black, // Changed to black for visibility on white
+          primary: Colors.white,
+          onPrimary: Colors.black,
+          secondary: Colors.white,
+          onSecondary: Colors.black,
           error: Colors.red,
           onError: Colors.white,
-          background: Color(0xFF121212), // Dark background
+          background: Color(0xFF121212),
           onBackground: Colors.white,
           surface: Color(0xFF1E1E1E),
           onSurface: Colors.white,
         ),
-        fontFamily: 'Roboto', // Use a modern, professional font
+        fontFamily: 'Roboto',
         useMaterial3: true,
       ),
       home: const LoginScreen(),
@@ -225,20 +286,11 @@ class MainLayout extends StatefulWidget {
   State<MainLayout> createState() => _MainLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout>
-    with SingleTickerProviderStateMixin {
+class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
 
   static const List<String> _moduleTitles = [
-    'Dashboard',
-    'CRM',
-    'Sales',
-    'Inventory',
-    'Accounting',
-    'HR',
-    'Wave Features', // Added Wave Features title
+    'Dashboard', 'CRM', 'Sales', 'Inventory', 'Accounting', 'HR', 'Invoicing'
   ];
 
   final List<Widget> _moduleWidgets = [
@@ -248,65 +300,13 @@ class _MainLayoutState extends State<MainLayout>
     const InventoryModule(),
     const AccountingModule(),
     const HRModule(),
-    const WaveFeaturesModule(), // Added Wave Features module
+    const InvoicingModule(),
   ];
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 500),
-      vsync: this,
-    );
-    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
-    _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
 
   void _onSelectModule(int index) {
     setState(() {
       _selectedIndex = index;
-      _controller.reset();
-      _controller.forward();
     });
-  }
-
-  Widget buildSidebar() {
-    return NavigationRail(
-      selectedIndex: _selectedIndex,
-      onDestinationSelected: _onSelectModule,
-      labelType: NavigationRailLabelType.all,
-      leading: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          children: const [
-            Icon(Icons.business, size: 48, color: Colors.blue),
-            SizedBox(height: 8),
-            Text('TAJ AL AMAL ERP',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
-      ),
-      destinations: const [
-        NavigationRailDestination(
-            icon: Icon(Icons.dashboard), label: Text('Dashboard')),
-        NavigationRailDestination(icon: Icon(Icons.people), label: Text('CRM')),
-        NavigationRailDestination(
-            icon: Icon(Icons.shopping_cart), label: Text('Sales')),
-        NavigationRailDestination(
-            icon: Icon(Icons.inventory), label: Text('Inventory')),
-        NavigationRailDestination(
-            icon: Icon(Icons.account_balance), label: Text('Accounting')),
-        NavigationRailDestination(icon: Icon(Icons.group), label: Text('HR')),
-        NavigationRailDestination(
-            icon: Icon(Icons.waves), label: Text('Wave Features')),
-      ],
-    );
   }
 
   @override
@@ -314,1573 +314,323 @@ class _MainLayoutState extends State<MainLayout>
     return Scaffold(
       appBar: AppBar(
         title: Text(_moduleTitles[_selectedIndex]),
-        actions: [
-          const Icon(Icons.notifications),
-          const SizedBox(width: 16),
-          CircleAvatar(
-            backgroundImage: NetworkImage('https://placehold.co/100x100/'),
-            radius: 16,
-            onBackgroundImageError: (_, __) => Container(
-                color: Colors.blue,
-                child: const Icon(Icons.person, color: Colors.white)),
-          ),
-          const SizedBox(width: 8),
-          const Text('Welcome, User'),
+        actions: const [
+          Icon(Icons.notifications),
+          SizedBox(width: 16),
+          CircleAvatar(backgroundImage: NetworkImage('https://placehold.co/100x100/')),
+          SizedBox(width: 8),
+          Text('Welcome, User'),
+          SizedBox(width: 16),
         ],
       ),
       body: Row(
         children: [
-          buildSidebar(),
+          NavigationRail(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: _onSelectModule,
+            labelType: NavigationRailLabelType.all,
+            leading: const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Column(
+                children: [
+                  Icon(Icons.business, size: 48, color: Colors.blue),
+                  SizedBox(height: 8),
+                  Text('TAJ AL AMAL ERP', style: TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            destinations: const [
+              NavigationRailDestination(icon: Icon(Icons.dashboard), label: Text('Dashboard')),
+              NavigationRailDestination(icon: Icon(Icons.people), label: Text('CRM')),
+              NavigationRailDestination(icon: Icon(Icons.shopping_cart), label: Text('Sales')),
+              NavigationRailDestination(icon: Icon(Icons.inventory), label: Text('Inventory')),
+              NavigationRailDestination(icon: Icon(Icons.account_balance), label: Text('Accounting')),
+              NavigationRailDestination(icon: Icon(Icons.group), label: Text('HR')),
+              NavigationRailDestination(icon: Icon(Icons.receipt), label: Text('Invoicing')),
+            ],
+          ),
           const VerticalDivider(thickness: 1, width: 1),
-          Expanded(
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: _moduleWidgets[_selectedIndex],
-            ),
-          ),
+          Expanded(child: _moduleWidgets[_selectedIndex]),
         ],
       ),
     );
   }
 }
 
-class SignUpScreen extends StatefulWidget {
-  const SignUpScreen({super.key});
 
+// --- Modules ---
+
+class DashboardModule extends StatelessWidget {
+  const DashboardModule({super.key});
   @override
-  State<SignUpScreen> createState() => _SignUpScreenState();
-}
-
-class _SignUpScreenState extends State<SignUpScreen>
-    with SingleTickerProviderStateMixin {
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController =
-      TextEditingController();
-  final FirebaseDatabaseHelper _dbHelper = FirebaseDatabaseHelper();
-  String? _verificationCode;
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    );
-    _animationController.forward();
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  void _signUp() async {
-    String username = _usernameController.text.trim();
-    String email = _emailController.text.trim();
-    String password = _passwordController.text;
-    String confirmPassword = _confirmPasswordController.text;
-
-    if (username.isEmpty ||
-        email.isEmpty ||
-        password.isEmpty ||
-        confirmPassword.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields')),
-      );
-      return;
-    }
-
-    if (!EmailValidator.validate(email)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid email')),
-      );
-      return;
-    }
-
-    if (password != confirmPassword) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Passwords do not match')),
-      );
-      return;
-    }
-
-    // Check if user already exists
-    User? existingUser = await _dbHelper.getUserByEmail(email);
-    if (existingUser != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('User with this email already exists')),
-      );
-      return;
-    }
-
-    // Generate verification code
-    String verificationCode = (Random().nextInt(900000) + 100000).toString();
-
-    // Create user
-    User newUser = User(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      username: username,
-      email: email,
-      password: password,
-      isVerified: false,
-    );
-
-    await _dbHelper.insertUser(newUser);
-
-    // Show verification code dialog
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Verification Code'),
-        content: Text('Your verification code is: $verificationCode'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(
-                  builder: (_) => EmailVerificationScreen(
-                    email: email,
-                    verificationCode: verificationCode,
-                    dbHelper: _dbHelper,
-                  ),
-                ),
-              );
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              colorScheme.primaryContainer,
-              colorScheme.secondaryContainer
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Center(
-          child: FadeTransition(
-            opacity:
-                _animationController.drive(CurveTween(curve: Curves.easeInOut)),
-            child: Container(
-              width: 420,
-              padding: const EdgeInsets.all(32),
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.shadow.withOpacity(0.1),
-                    spreadRadius: 8,
-                    blurRadius: 24,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.business,
-                      size: 72,
-                      color: colorScheme.primary,
-                      semanticLabel:
-                          'Company building icon representing TAJ AL AMAL ERP',
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Sign Up',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Create your account',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    TextField(
-                      controller: _usernameController,
-                      decoration: InputDecoration(
-                        labelText: 'Username',
-                        prefixIcon:
-                            Icon(Icons.person, color: colorScheme.primary),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: _emailController,
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon:
-                            Icon(Icons.email, color: colorScheme.primary),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: _passwordController,
-                      obscureText: true,
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        prefixIcon:
-                            Icon(Icons.lock, color: colorScheme.primary),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: _confirmPasswordController,
-                      obscureText: true,
-                      decoration: InputDecoration(
-                        labelText: 'Confirm Password',
-                        prefixIcon:
-                            Icon(Icons.lock, color: colorScheme.primary),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: _signUp,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text('Sign Up',
-                            style: TextStyle(fontSize: 16)),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(
-                              builder: (_) => const LoginScreen()),
-                        );
-                      },
-                      child: Text(
-                        'Already have an account? Login',
-                        style: TextStyle(color: colorScheme.primary),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
-
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final FirebaseDatabaseHelper _dbHelper = FirebaseDatabaseHelper();
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    );
-    _animationController.forward();
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  void _login() async {
-    String email = _emailController.text.trim();
-    String password = _passwordController.text;
-
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields')),
-      );
-      return;
-    }
-
-    User? user = await _dbHelper.getUserByEmail(email);
-    if (user == null || user.password != password) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid email or password')),
-      );
-      return;
-    }
-
-    if (!user.isVerified) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please verify your email first')),
-      );
-      return;
-    }
-
-    // Navigate to main app
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainLayout()),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              colorScheme.primaryContainer,
-              colorScheme.secondaryContainer
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Center(
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: Container(
-              width: 420,
-              padding: const EdgeInsets.all(32),
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.shadow.withOpacity(0.1),
-                    spreadRadius: 8,
-                    blurRadius: 24,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.business,
-                      size: 72,
-                      color: colorScheme.primary,
-                      semanticLabel:
-                          'Company building icon representing TAJ AL AMAL ERP',
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Welcome Back',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Sign in to your account',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    TextField(
-                      controller: _emailController,
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon:
-                            Icon(Icons.email, color: colorScheme.primary),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: _passwordController,
-                      obscureText: true,
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        prefixIcon:
-                            Icon(Icons.lock, color: colorScheme.primary),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: _login,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child:
-                            const Text('Login', style: TextStyle(fontSize: 16)),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(
-                              builder: (_) => const SignUpScreen()),
-                        );
-                      },
-                      child: Text(
-                        'Don\'t have an account? Sign Up',
-                        style: TextStyle(color: colorScheme.primary),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class EmailVerificationScreen extends StatefulWidget {
-  final String email;
-  final String verificationCode;
-  final FirebaseDatabaseHelper dbHelper;
-
-  const EmailVerificationScreen({
-    super.key,
-    required this.email,
-    required this.verificationCode,
-    required this.dbHelper,
-  });
-
-  @override
-  State<EmailVerificationScreen> createState() =>
-      _EmailVerificationScreenState();
-}
-
-class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
-  final TextEditingController _codeController = TextEditingController();
-
-  void _verify() async {
-    if (_codeController.text == widget.verificationCode) {
-      User? user = await widget.dbHelper.getUserByEmail(widget.email);
-      if (user != null) {
-        user.isVerified = true;
-        await widget.dbHelper.updateUser(user);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Email verified successfully!')),
-        );
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-        );
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid verification code')),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Container(
-          width: 400,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                spreadRadius: 5,
-                blurRadius: 15,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.email,
-                size: 64,
-                color: Colors.blue,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Email Verification',
-                style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Enter the verification code sent to ${widget.email}',
-                style: const TextStyle(fontSize: 16, color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Your verification code is: ${widget.verificationCode}',
-                style: const TextStyle(fontSize: 16, color: Colors.black87),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              TextField(
-                controller: _codeController,
-                decoration: InputDecoration(
-                    labelText: 'Verification Code',
-                    labelStyle: TextStyle(color: Colors.white),
-                    filled: true,
-                    fillColor: Color(0xFF686868),
-                    border: OutlineInputBorder(),
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.blue),
-                    )),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: _verify,
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 100, vertical: 16)),
-                child: const Text('Verify'),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Back'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const Center(child: Text("Dashboard"));
 }
 
 class CRMModule extends StatefulWidget {
   const CRMModule({super.key});
 
   @override
-  State<CRMModule> createState() => _CRMModuleState();
+  _CRMModuleState createState() => _CRMModuleState();
 }
 
 class _CRMModuleState extends State<CRMModule> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Customer Relationship Management'),
-        actions: [
-          ElevatedButton(
-            onPressed: () => _addCustomer(context),
-            child: const Text('Add Customer'),
-          ),
-        ],
-      ),
-      body: Consumer<ERPState>(
-        builder: (context, state, child) {
-          return ListView.builder(
-            itemCount: state.customers.length,
-            itemBuilder: (context, index) {
-              final customer = state.customers[index];
-              return Card(
-                margin: const EdgeInsets.all(8.0),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue,
-                    child: Text(customer.name[0]),
-                  ),
-                  title: Text(customer.name),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(customer.email),
-                      Text(customer.phone),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        onPressed: () => _editCustomer(context, customer),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        onPressed: () =>
-                            _confirmDeleteCustomer(context, customer.id),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
+  void _showCustomerDialog({Customer? customer}) {
+    final _formKey = GlobalKey<FormState>();
+    String name = customer?.name ?? '';
+    String email = customer?.email ?? '';
+    String phone = customer?.phone ?? '';
 
-  void _addCustomer(BuildContext context) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        String name = '', email = '', phone = '';
+      builder: (context) {
         return AlertDialog(
-          title: const Text('Add New Customer'),
-          content: SingleChildScrollView(
+          title: Text(customer == null ? 'Add Customer' : 'Edit Customer'),
+          content: Form(
+            key: _formKey,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  onChanged: (value) => name = value,
+                TextFormField(
+                  initialValue: name,
                   decoration: const InputDecoration(labelText: 'Name'),
+                  validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                  onSaved: (value) => name = value!,
                 ),
-                TextField(
-                  onChanged: (value) => email = value,
+                TextFormField(
+                  initialValue: email,
                   decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (value) =>
+                      value != null && !EmailValidator.validate(value) ? 'Invalid Email' : null,
+                  onSaved: (value) => email = value!,
                 ),
-                TextField(
-                  onChanged: (value) => phone = value,
+                TextFormField(
+                  initialValue: phone,
                   decoration: const InputDecoration(labelText: 'Phone'),
+                  validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                  onSaved: (value) => phone = value!,
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            ElevatedButton(
               onPressed: () {
-                if (name.isNotEmpty && email.isNotEmpty && phone.isNotEmpty) {
-                  showDialog(
-                    context: context,
-                    builder: (BuildContext context) {
-                      return AlertDialog(
-                        title: const Text('Confirm Add Customer'),
-                        content:
-                            Text('Name: $name\nEmail: $email\nPhone: $phone'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              String id =
-                                  'cust_${DateTime.now().millisecondsSinceEpoch}';
-                              Provider.of<ERPState>(context, listen: false)
-                                  .addCustomer(id, name, email, phone);
-                              Navigator.of(context).pop(); // close confirmation
-                              Navigator.of(context).pop(); // close add dialog
-                            },
-                            child: const Text('Confirm'),
-                          ),
-                        ],
-                      );
+                if (_formKey.currentState!.validate()) {
+                  _formKey.currentState!.save();
+                  final erpState = Provider.of<ERPState>(context, listen: false);
+                  if (customer == null) {
+                    erpState.addCustomer(name, email, phone);
+                  } else {
+                    erpState.updateCustomer(Customer(id: customer.id, name: name, email: email, phone: phone));
+                  }
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmDelete(Customer customer) {
+     showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+            title: const Text('Confirm Deletion'),
+            content: Text('Are you sure you want to delete ${customer.name}?'),
+            actions: [
+                TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
+                TextButton(
+                    child: const Text('Delete'),
+                    onPressed: () {
+                        Provider.of<ERPState>(context, listen: false).removeCustomer(customer.id);
+                        Navigator.of(context).pop();
                     },
-                  );
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
+                ),
+            ],
+        ),
     );
   }
 
-  void _editCustomer(BuildContext context, Customer customer) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        String name = customer.name;
-        String email = customer.email;
-        String phone = customer.phone;
-        return AlertDialog(
-          title: const Text('Edit Customer'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: TextEditingController(text: name),
-                  onChanged: (value) => name = value,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                ),
-                TextField(
-                  controller: TextEditingController(text: email),
-                  onChanged: (value) => email = value,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                ),
-                TextField(
-                  controller: TextEditingController(text: phone),
-                  onChanged: (value) => phone = value,
-                  decoration: const InputDecoration(labelText: 'Phone'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (name.isNotEmpty && email.isNotEmpty && phone.isNotEmpty) {
-                  Provider.of<ERPState>(context, listen: false).updateCustomer(
-                      Customer(
-                          id: customer.id,
-                          name: name,
-                          email: email,
-                          phone: phone));
-                  Navigator.of(context).pop();
-                }
-              },
-              child: const Text('Update'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _confirmDeleteCustomer(BuildContext context, String id) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirm Delete'),
-          content: const Text('Are you sure you want to delete this customer?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Provider.of<ERPState>(context, listen: false)
-                    .removeCustomer(id);
-                Navigator.of(context).pop();
-              },
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class SalesModule extends StatefulWidget {
-  const SalesModule({super.key});
-
-  @override
-  State<SalesModule> createState() => _SalesModuleState();
-}
-
-class _SalesModuleState extends State<SalesModule> {
   @override
   Widget build(BuildContext context) {
+    final customers = Provider.of<ERPState>(context).customers;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sales Management'),
+        title: const Text('Customers'),
         actions: [
-          ElevatedButton(
-            onPressed: () => _createSale(context),
-            child: const Text('Create Sale'),
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => _showCustomerDialog(),
           ),
         ],
       ),
-      body: Consumer<ERPState>(
-        builder: (context, state, child) {
-          return ListView.builder(
-            itemCount: state.sales.length,
-            itemBuilder: (context, index) {
-              final sale = state.sales[index];
-              final customer = state.customers.firstWhere(
-                (c) => c.id == sale.customerId,
-                orElse: () =>
-                    Customer(id: '', name: 'Unknown', email: '', phone: ''),
-              );
-              return Card(
-                margin: const EdgeInsets.all(8.0),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.green,
-                    child: Text(sale.id.substring(0, 1).toUpperCase()),
-                  ),
-                  title: Text('Sale ${sale.id}'),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Customer: ${customer.name}'),
-                      Text('Total: \${sale.totalAmount.toStringAsFixed(2)}'),
-                      Text('Date: ${sale.date.toString().split(' ')[0]}'),
-                      Text('Status: ${sale.status}'),
-                    ],
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete),
-                    onPressed: () => _confirmDeleteSale(context, sale.id),
-                  ),
-                ),
-              );
-            },
+      body: ListView.builder(
+        itemCount: customers.length,
+        itemBuilder: (context, index) {
+          final customer = customers[index];
+          return ListTile(
+            title: Text(customer.name),
+            subtitle: Text(customer.email),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(icon: const Icon(Icons.edit), onPressed: () => _showCustomerDialog(customer: customer)),
+                IconButton(icon: const Icon(Icons.delete), onPressed: () => _confirmDelete(customer)),
+              ],
+            ),
           );
         },
       ),
     );
   }
-
-  void _createSale(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        String selectedCustomerId = '';
-        List<String> selectedProductIds = [];
-        double totalAmount = 0.0;
-        String status = 'Pending';
-
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: const Text('Create New Sale'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Consumer<ERPState>(
-                      builder: (context, state, child) {
-                        return DropdownButtonFormField<String>(
-                          value: selectedCustomerId.isEmpty
-                              ? null
-                              : selectedCustomerId,
-                          hint: const Text('Select Customer'),
-                          items: state.customers.map((customer) {
-                            return DropdownMenuItem<String>(
-                              value: customer.id,
-                              child: Text(customer.name),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              selectedCustomerId = value ?? '';
-                            });
-                          },
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    Consumer<ERPState>(
-                      builder: (context, state, child) {
-                        return Column(
-                          children: state.products.map((product) {
-                            return CheckboxListTile(
-                              title:
-                                  Text('${product.name} - \${product.price}'),
-                              value: selectedProductIds.contains(product.id),
-                              onChanged: (bool? value) {
-                                setState(() {
-                                  if (value == true) {
-                                    selectedProductIds.add(product.id);
-                                    totalAmount += product.price;
-                                  } else {
-                                    selectedProductIds.remove(product.id);
-                                    totalAmount -= product.price;
-                                  }
-                                });
-                              },
-                            );
-                          }).toList(),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    Text('Total: \${totalAmount.toStringAsFixed(2)}'),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: status,
-                      items: ['Pending', 'Completed', 'Cancelled']
-                          .map((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          status = value ?? 'Pending';
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    if (selectedCustomerId.isNotEmpty &&
-                        selectedProductIds.isNotEmpty) {
-                      Provider.of<ERPState>(context, listen: false).addSale(
-                          selectedCustomerId,
-                          selectedProductIds,
-                          totalAmount,
-                          status);
-                      Navigator.of(context).pop();
-                    }
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _confirmDeleteSale(BuildContext context, String id) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirm Delete'),
-          content: const Text('Are you sure you want to delete this sale?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Provider.of<ERPState>(context, listen: false).removeSale(id);
-                Navigator.of(context).pop();
-              },
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-  }
 }
+
+class SalesModule extends StatelessWidget {
+  const SalesModule({super.key});
+  @override
+  Widget build(BuildContext context) => const Center(child: Text("Sales"));
+}
+
 
 class InventoryModule extends StatefulWidget {
   const InventoryModule({super.key});
 
   @override
-  State<InventoryModule> createState() => _InventoryModuleState();
+  _InventoryModuleState createState() => _InventoryModuleState();
 }
 
 class _InventoryModuleState extends State<InventoryModule> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Inventory Management'),
-        actions: [
-          ElevatedButton(
-            onPressed: () => _addProduct(context),
-            child: const Text('Add Product'),
-          ),
-        ],
-      ),
-      body: Consumer<ERPState>(
-        builder: (context, state, child) {
-          return ListView.builder(
-            itemCount: state.products.length,
-            itemBuilder: (context, index) {
-              final product = state.products[index];
-              return Card(
-                margin: const EdgeInsets.all(8.0),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.orange,
-                    child: Text(product.name[0]),
-                  ),
-                  title: Text(product.name),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Price: \${product.price.toStringAsFixed(2)}'),
-                      Text('Stock: ${product.stockQuantity}'),
-                      Text('Category: ${product.category}'),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        onPressed: () => _editProduct(context, product.id),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        onPressed: () =>
-                            _confirmDeleteProduct(context, product.id),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
+  void _showProductDialog({Product? product}) {
+    final _formKey = GlobalKey<FormState>();
+    String name = product?.name ?? '';
+    String description = product?.description ?? '';
+    double price = product?.price ?? 0.0;
+    int stock = product?.stockQuantity ?? 0;
+    String category = product?.category ?? '';
 
-  void _addProduct(BuildContext context) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        String id = '', name = '', description = '', category = '';
-        double price = 0.0;
-        int stock = 0;
+      builder: (context) {
         return AlertDialog(
-          title: const Text('Add New Product'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  onChanged: (value) => id = value,
-                  decoration: const InputDecoration(labelText: 'Product ID'),
-                ),
-                TextField(
-                  onChanged: (value) => name = value,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                ),
-                TextField(
-                  onChanged: (value) => description = value,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                TextField(
-                  onChanged: (value) => price = double.tryParse(value) ?? 0.0,
-                  decoration: const InputDecoration(labelText: 'Price'),
-                  keyboardType: TextInputType.number,
-                ),
-                TextField(
-                  onChanged: (value) => stock = int.tryParse(value) ?? 0,
-                  decoration:
-                      const InputDecoration(labelText: 'Stock Quantity'),
-                  keyboardType: TextInputType.number,
-                ),
-                TextField(
-                  onChanged: (value) => category = value,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                ),
-              ],
+          title: Text(product == null ? 'Add Product' : 'Edit Product'),
+          content: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    initialValue: name,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                    validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                    onSaved: (value) => name = value!,
+                  ),
+                  TextFormField(
+                    initialValue: description,
+                    decoration: const InputDecoration(labelText: 'Description'),
+                    validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                    onSaved: (value) => description = value!,
+                  ),
+                  TextFormField(
+                    initialValue: price.toString(),
+                    decoration: const InputDecoration(labelText: 'Price'),
+                    keyboardType: TextInputType.number,
+                    validator: (value) => (double.tryParse(value ?? '') == null) ? 'Invalid Number' : null,
+                    onSaved: (value) => price = double.parse(value!),
+                  ),
+                   TextFormField(
+                    initialValue: stock.toString(),
+                    decoration: const InputDecoration(labelText: 'Stock Quantity'),
+                    keyboardType: TextInputType.number,
+                    validator: (value) => (int.tryParse(value ?? '') == null) ? 'Invalid Number' : null,
+                    onSaved: (value) => stock = int.parse(value!),
+                  ),
+                   TextFormField(
+                    initialValue: category,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                    validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                    onSaved: (value) => category = value!,
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            ElevatedButton(
               onPressed: () {
-                if (id.isNotEmpty &&
-                    name.isNotEmpty &&
-                    price > 0 &&
-                    stock >= 0 &&
-                    category.isNotEmpty) {
-                  showDialog(
-                    context: context,
-                    builder: (BuildContext context) {
-                      return AlertDialog(
-                        title: const Text('Confirm Add Product'),
-                        content: Text(
-                            'ID: $id\nName: $name\nDescription: $description\nPrice: $price\nStock: $stock\nCategory: $category'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Provider.of<ERPState>(context, listen: false)
-                                  .addProduct(id, name, description, price,
-                                      stock, category);
-                              Navigator.of(context).pop(); // close confirmation
-                              Navigator.of(context).pop(); // close add dialog
-                            },
-                            child: const Text('Confirm'),
-                          ),
-                        ],
-                      );
+                if (_formKey.currentState!.validate()) {
+                  _formKey.currentState!.save();
+                  final erpState = Provider.of<ERPState>(context, listen: false);
+                  if (product == null) {
+                    erpState.addProduct(name, description, price, stock, category);
+                  } else {
+                    erpState.updateProduct(Product(id: product.id, name: name, description: description, price: price, stockQuantity: stock, category: category));
+                  }
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmDelete(Product product) {
+     showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+            title: const Text('Confirm Deletion'),
+            content: Text('Are you sure you want to delete ${product.name}?'),
+            actions: [
+                TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
+                TextButton(
+                    child: const Text('Delete'),
+                    onPressed: () {
+                        Provider.of<ERPState>(context, listen: false).removeProduct(product.id);
+                        Navigator.of(context).pop();
                     },
-                  );
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _editProduct(BuildContext context, Product product) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        String name = product.name;
-        String description = product.description;
-        double price = product.price;
-        int stock = product.stockQuantity;
-        String category = product.category;
-        return AlertDialog(
-          title: const Text('Edit Product'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: TextEditingController(text: name),
-                  onChanged: (value) => name = value,
-                  decoration: const InputDecoration(labelText: 'Name'),
                 ),
-                TextField(
-                  controller: TextEditingController(text: description),
-                  onChanged: (value) => description = value,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                TextField(
-                  controller: TextEditingController(text: price.toString()),
-                  onChanged: (value) => price = double.tryParse(value) ?? price,
-                  decoration: const InputDecoration(labelText: 'Price'),
-                  keyboardType: TextInputType.number,
-                ),
-                TextField(
-                  controller: TextEditingController(text: stock.toString()),
-                  onChanged: (value) => stock = int.tryParse(value) ?? stock,
-                  decoration:
-                      const InputDecoration(labelText: 'Stock Quantity'),
-                  keyboardType: TextInputType.number,
-                ),
-                TextField(
-                  controller: TextEditingController(text: category),
-                  onChanged: (value) => category = value,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (name.isNotEmpty &&
-                    price > 0 &&
-                    stock >= 0 &&
-                    category.isNotEmpty) {
-                  Provider.of<ERPState>(context, listen: false).updateProduct(
-                      Product(
-                          id: product.id,
-                          name: name,
-                          description: description,
-                          price: price,
-                          stockQuantity: stock,
-                          category: category));
-                  Navigator.of(context).pop();
-                }
-              },
-              child: const Text('Update'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _confirmDeleteProduct(BuildContext context, String id) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirm Delete'),
-          content: const Text('Are you sure you want to delete this product?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Provider.of<ERPState>(context, listen: false).removeProduct(id);
-                Navigator.of(context).pop();
-              },
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class AccountingModule extends StatefulWidget {
-  const AccountingModule({super.key});
-
-  @override
-  State<AccountingModule> createState() => _AccountingModuleState();
-}
-
-class _AccountingModuleState extends State<AccountingModule> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Accounting Management'),
-        actions: [
-          ElevatedButton(
-            onPressed: () => _addTransaction(context),
-            child: const Text('Add Transaction'),
-          ),
-        ],
-      ),
-      body: Consumer<ERPState>(
-        builder: (context, state, child) {
-          return ListView.builder(
-            itemCount: state.transactions.length,
-            itemBuilder: (context, index) {
-              final transaction = state.transactions[index];
-              return Card(
-                margin: const EdgeInsets.all(8.0),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: transaction.type == 'income'
-                        ? Colors.green
-                        : Colors.red,
-                    child: Icon(
-                      transaction.type == 'income'
-                          ? Icons.arrow_upward
-                          : Icons.arrow_downward,
-                      color: Colors.white,
-                    ),
-                  ),
-                  title: Text(transaction.description),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Category: ${transaction.category}'),
-                      Text(
-                          'Date: ${transaction.date.toString().split(' ')[0]}'),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('\$${transaction.amount.toStringAsFixed(2)}'),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        onPressed: () =>
-                            _confirmDeleteTransaction(context, index),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  void _addTransaction(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        String type = 'income';
-        double amount = 0.0;
-        String description = '';
-        String category = '';
-        return AlertDialog(
-          title: const Text('Add New Transaction'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  value: type,
-                  items: ['income', 'expense'].map((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(value),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    type = value ?? 'income';
-                  },
-                ),
-                TextField(
-                  onChanged: (value) => amount = double.tryParse(value) ?? 0.0,
-                  decoration: const InputDecoration(labelText: 'Amount'),
-                  keyboardType: TextInputType.number,
-                ),
-                TextField(
-                  onChanged: (value) => description = value,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                TextField(
-                  onChanged: (value) => category = value,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (amount > 0 &&
-                    description.isNotEmpty &&
-                    category.isNotEmpty) {
-                  Provider.of<ERPState>(context, listen: false)
-                      .addTransaction(type, amount, description, category);
-                  Navigator.of(context).pop();
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _confirmDeleteTransaction(BuildContext context, int index) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirm Delete'),
-          content:
-              const Text('Are you sure you want to delete this transaction?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Provider.of<ERPState>(context, listen: false)
-                    .removeTransaction(index);
-                Navigator.of(context).pop();
-              },
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class DashboardModule extends StatelessWidget {
-  const DashboardModule({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: SingleChildScrollView(
-        child: Consumer<ERPState>(
-          builder: (context, state, child) {
-            double totalIncome = state.transactions
-                .where((t) => t.type == 'income')
-                .fold(0.0, (sum, t) => sum + t.amount);
-            double totalExpense = state.transactions
-                .where((t) => t.type == 'expense')
-                .fold(0.0, (sum, t) => sum + t.amount);
-            double balance = totalIncome - totalExpense;
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Dashboard', style: Theme.of(context).textTheme.headline4),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    _buildDashboardCard(context, Icons.people, 'Customers',
-                        state.customers.length.toString(), Colors.green),
-                    const SizedBox(width: 16),
-                    _buildDashboardCard(context, Icons.shopping_cart, 'Sales',
-                        state.sales.length.toString(), Colors.blue),
-                    const SizedBox(width: 16),
-                    _buildDashboardCard(context, Icons.inventory, 'Products',
-                        state.products.length.toString(), Colors.orange),
-                    const SizedBox(width: 16),
-                    _buildDashboardCard(context, Icons.group, 'Employees',
-                        state.employees.length.toString(), Colors.purple),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    _buildDashboardCard(
-                        context,
-                        Icons.attach_money,
-                        'Total Income',
-                        '\$${totalIncome.toStringAsFixed(2)}',
-                        Colors.green),
-                    const SizedBox(width: 16),
-                    _buildDashboardCard(
-                        context,
-                        Icons.money_off,
-                        'Total Expense',
-                        '\$${totalExpense.toStringAsFixed(2)}',
-                        Colors.red),
-                    const SizedBox(width: 16),
-                    _buildDashboardCard(
-                        context,
-                        Icons.account_balance,
-                        'Balance',
-                        '\$${balance.toStringAsFixed(2)}',
-                        Colors.blue),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Text('Recent Transactions',
-                    style: Theme.of(context).textTheme.headline6),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 300,
-                  child: ListView.builder(
-                    itemCount: state.transactions.length,
-                    itemBuilder: (context, index) {
-                      final transaction = state.transactions[index];
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: transaction.type == 'income'
-                              ? Colors.green
-                              : Colors.red,
-                          child: Icon(
-                            transaction.type == 'income'
-                                ? Icons.arrow_upward
-                                : Icons.arrow_downward,
-                            color: Colors.white,
-                          ),
-                        ),
-                        title: Text(transaction.description),
-                        subtitle: Text(
-                            '${transaction.category} - ${transaction.date.toString().split(' ')[0]}'),
-                        trailing:
-                            Text('\$${transaction.amount.toStringAsFixed(2)}'),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDashboardCard(BuildContext context, IconData icon, String title,
-      String value, Color color) {
-    return Expanded(
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 48),
-              const SizedBox(height: 8),
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.bold)),
-              Text(title, style: const TextStyle(color: Colors.grey)),
             ],
-          ),
         ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final products = Provider.of<ERPState>(context).products;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Inventory'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => _showProductDialog(),
+          ),
+        ],
+      ),
+      body: ListView.builder(
+        itemCount: products.length,
+        itemBuilder: (context, index) {
+          final product = products[index];
+          return ListTile(
+            title: Text(product.name),
+            subtitle: Text('Stock: ${product.stockQuantity} - \$${product.price.toStringAsFixed(2)}'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(icon: const Icon(Icons.edit), onPressed: () => _showProductDialog(product: product)),
+                IconButton(icon: const Icon(Icons.delete), onPressed: () => _confirmDelete(product)),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -1890,242 +640,176 @@ class HRModule extends StatefulWidget {
   const HRModule({super.key});
 
   @override
-  State<HRModule> createState() => _HRModuleState();
+  _HRModuleState createState() => _HRModuleState();
 }
 
 class _HRModuleState extends State<HRModule> {
+  void _showEmployeeDialog({Employee? employee}) {
+    final _formKey = GlobalKey<FormState>();
+    String name = employee?.name ?? '';
+    String position = employee?.position ?? '';
+    String department = employee?.department ?? '';
+    double salary = employee?.salary ?? 0.0;
+    String email = employee?.email ?? '';
+    String phone = employee?.phone ?? '';
+
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(employee == null ? 'Add Employee' : 'Edit Employee'),
+          content: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    initialValue: name,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                    validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                    onSaved: (value) => name = value!,
+                  ),
+                  TextFormField(
+                    initialValue: email,
+                    decoration: const InputDecoration(labelText: 'Email'),
+                    validator: (value) =>
+                        value != null && !EmailValidator.validate(value) ? 'Invalid Email' : null,
+                    onSaved: (value) => email = value!,
+                ),
+                TextFormField(
+                    initialValue: phone,
+                    decoration: const InputDecoration(labelText: 'Phone'),
+                    validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                    onSaved: (value) => phone = value!,
+                ),
+                  TextFormField(
+                    initialValue: position,
+                    decoration: const InputDecoration(labelText: 'Position'),
+                    validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                    onSaved: (value) => position = value!,
+                  ),
+                  TextFormField(
+                    initialValue: department,
+                    decoration: const InputDecoration(labelText: 'Department'),
+                    validator: (value) => (value?.isEmpty ?? true) ? 'Required' : null,
+                    onSaved: (value) => department = value!,
+                  ),
+                  TextFormField(
+                    initialValue: salary.toString(),
+                    decoration: const InputDecoration(labelText: 'Salary'),
+                    keyboardType: TextInputType.number,
+                    validator: (value) => (double.tryParse(value ?? '') == null) ? 'Invalid Number' : null,
+                    onSaved: (value) => salary = double.parse(value!),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () {
+                if (_formKey.currentState!.validate()) {
+                  _formKey.currentState!.save();
+                  final erpState = Provider.of<ERPState>(context, listen: false);
+                  if (employee == null) {
+                    erpState.addEmployee(name, position, department, salary, email, phone);
+                  } else {
+                    erpState.updateEmployee(Employee(id: employee.id, name: name, email: email, phone: phone, position: position, department: department, salary: salary, hireDate: employee.hireDate));
+                  }
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmDelete(Employee employee) {
+     showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+            title: const Text('Confirm Deletion'),
+            content: Text('Are you sure you want to delete ${employee.name}?'),
+            actions: [
+                TextButton(child: const Text('Cancel'), onPressed: () => Navigator.of(context).pop()),
+                TextButton(
+                    child: const Text('Delete'),
+                    onPressed: () {
+                        Provider.of<ERPState>(context, listen: false).removeEmployee(employee.id);
+                        Navigator.of(context).pop();
+                    },
+                ),
+            ],
+        ),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
+    final employees = Provider.of<ERPState>(context).employees;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Human Resources Management'),
+        title: const Text('Employees'),
         actions: [
-          ElevatedButton(
-            onPressed: () => _addEmployee(context),
-            child: const Text('Add Employee'),
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => _showEmployeeDialog(),
           ),
         ],
       ),
-      body: Consumer<ERPState>(
-        builder: (context, state, child) {
-          return ListView.builder(
-            itemCount: state.employees.length,
-            itemBuilder: (context, index) {
-              final employee = state.employees[index];
-              return Card(
-                margin: const EdgeInsets.all(8.0),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.purple,
-                    child: Text(employee.name[0]),
-                  ),
-                  title: Text(employee.name),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Position: ${employee.position}'),
-                      Text('Salary: \$${employee.salary.toStringAsFixed(2)}'),
-                      Text('Department: ${employee.department}'),
-                      Text(
-                          'Hire Date: ${employee.hireDate.toString().split(' ')[0]}'),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        onPressed: () =>
-                            _editEmployee(context, index, employee),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        onPressed: () => _confirmDeleteEmployee(context, index),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+      body: ListView.builder(
+        itemCount: employees.length,
+        itemBuilder: (context, index) {
+          final employee = employees[index];
+          return ListTile(
+            title: Text(employee.name),
+            subtitle: Text('${employee.position} - ${employee.department}'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(icon: const Icon(Icons.edit), onPressed: () => _showEmployeeDialog(employee: employee)),
+                IconButton(icon: const Icon(Icons.delete), onPressed: () => _confirmDelete(employee)),
+              ],
+            ),
           );
         },
       ),
     );
   }
+}
 
-  void _addEmployee(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        String name = '', position = '', department = '';
-        double salary = 0.0;
-        return AlertDialog(
-          title: const Text('Add New Employee'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  onChanged: (value) => name = value,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  onChanged: (value) => position = value,
-                  decoration: const InputDecoration(labelText: 'Position'),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  onChanged: (value) => department = value,
-                  decoration: const InputDecoration(labelText: 'Department'),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  onChanged: (value) => salary = double.tryParse(value) ?? 0.0,
-                  decoration: const InputDecoration(labelText: 'Salary'),
-                  keyboardType: TextInputType.number,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (name.isNotEmpty &&
-                    position.isNotEmpty &&
-                    department.isNotEmpty &&
-                    salary > 0) {
-                  showDialog(
-                    context: context,
-                    builder: (BuildContext context) {
-                      return AlertDialog(
-                        title: const Text('Confirm Add Employee'),
-                        content: Text(
-                            'Name: $name\nPosition: $position\nDepartment: $department\nSalary: $salary'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              String id =
-                                  'emp_${DateTime.now().millisecondsSinceEpoch}';
-                              Provider.of<ERPState>(context, listen: false)
-                                  .addEmployee(
-                                      id, name, position, department, salary);
-                              Navigator.of(context).pop(); // close confirmation
-                              Navigator.of(context).pop(); // close add dialog
-                            },
-                            child: const Text('Confirm'),
-                          ),
-                        ],
-                      );
-                    },
-                  );
-                }
-              },
-              child: const Text('Add'),
+// --- Login/Signup Screens (Placeholder) ---
+
+class LoginScreen extends StatelessWidget {
+  const LoginScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('Login'),
+            ElevatedButton(
+              child: const Text('Go to Main App'),
+              onPressed: () => Navigator.pushReplacementNamed(context, '/main'),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
+}
 
-  void _editEmployee(BuildContext context, int index, Employee employee) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        String name = employee.name;
-        String position = employee.position;
-        String department = employee.department;
-        double salary = employee.salary;
-        return AlertDialog(
-          title: const Text('Edit Employee'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: TextEditingController(text: name),
-                  onChanged: (value) => name = value,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: TextEditingController(text: position),
-                  onChanged: (value) => position = value,
-                  decoration: const InputDecoration(labelText: 'Position'),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: TextEditingController(text: department),
-                  onChanged: (value) => department = value,
-                  decoration: const InputDecoration(labelText: 'Department'),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: TextEditingController(text: salary.toString()),
-                  onChanged: (value) =>
-                      salary = double.tryParse(value) ?? salary,
-                  decoration: const InputDecoration(labelText: 'Salary'),
-                  keyboardType: TextInputType.number,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (name.isNotEmpty &&
-                    position.isNotEmpty &&
-                    department.isNotEmpty &&
-                    salary > 0) {
-                  Provider.of<ERPState>(context, listen: false).updateEmployee(
-                      index, name, position, department, salary);
-                  Navigator.of(context).pop();
-                }
-              },
-              child: const Text('Update'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _confirmDeleteEmployee(BuildContext context, int index) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirm Delete'),
-          content: const Text('Are you sure you want to delete this employee?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                Provider.of<ERPState>(context, listen: false)
-                    .removeEmployee(index);
-                Navigator.of(context).pop();
-              },
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-  }
+class SignUpScreen extends StatelessWidget {
+  const SignUpScreen({super.key});
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Center(child: Text('Sign Up')));
 }

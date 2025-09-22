@@ -4,13 +4,11 @@ class WaveFeaturesModule extends StatelessWidget {
   const WaveFeaturesModule({super.key});
 
   final List<String> features = const [
-    'Invoicing: Create and send professional invoices.',
-    'Payments: Accept online payments from customers.',
-    'Accounting: Track income, expenses, and generate financial reports.',
-    'Payroll: Manage employee payroll and tax filings.',
-    'Receipts: Scan and organize receipts.',
-    'Financial Dashboard: Overview of cash flow and financial health.',
-    'Integrations: Connect with banks and other financial tools.',
+    'Invoicing',
+    'Accounting',
+    'Payments',
+    'Payroll',
+    'Advisors',
   ];
 
   @override
